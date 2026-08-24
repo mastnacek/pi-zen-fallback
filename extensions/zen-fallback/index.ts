@@ -27,7 +27,10 @@
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 
 /* ------------------------------------------------------------------ */
 /* Configuration                                                       */
@@ -76,10 +79,22 @@ const SWITCH_COOLDOWN_MS = 30 * 1000;
 // their configuration is left completely untouched.
 const FREE_MODELS = [
 	{ id: "big-pickle", name: "Big Pickle (free)", reasoning: true },
-	{ id: "deepseek-v4-flash-free", name: "DeepSeek V4 Flash Free", reasoning: true },
+	{
+		id: "deepseek-v4-flash-free",
+		name: "DeepSeek V4 Flash Free",
+		reasoning: true,
+	},
 	{ id: "hy3-free", name: "Hy3 Free", reasoning: true },
-	{ id: "nemotron-3.5-lightning-free", name: "Nemotron 3.5 Lightning Free", reasoning: true },
-	{ id: "nemotron-3-ultra-free", name: "Nemotron 3 Ultra Free", reasoning: true },
+	{
+		id: "nemotron-3.5-lightning-free",
+		name: "Nemotron 3.5 Lightning Free",
+		reasoning: true,
+	},
+	{
+		id: "nemotron-3-ultra-free",
+		name: "Nemotron 3 Ultra Free",
+		reasoning: true,
+	},
 	{ id: "mimo-v2.5-free", name: "MiMo V2.5 Free", reasoning: true },
 	{ id: "laguna-s-2.1-free", name: "Laguna S 2.1 Free", reasoning: true },
 ].map((m) => ({
@@ -91,7 +106,8 @@ const FREE_MODELS = [
 }));
 
 const ZEN_DEFAULT_BASE_URL = "https://opencode.ai/zen/v1";
-const ZEN_DEFAULT_UA = "opencode/1.18.18 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14";
+const ZEN_DEFAULT_UA =
+	"opencode/1.18.18 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14";
 
 // Read the user's zenfree provider config from models.json (if any). Returns
 // null when zenfree is not defined there at all. `hasModels` tells us whether
@@ -162,17 +178,23 @@ let statusTimer: ReturnType<typeof setInterval> | null = null;
 let widgetVisible = false;
 
 function isOnFallbackModel(modelId: string | undefined): boolean {
-	return !!modelId && modelId !== FALLBACK_ORDER[0] && FALLBACK_ORDER.includes(modelId);
+	return (
+		!!modelId && modelId !== FALLBACK_ORDER[0] && FALLBACK_ORDER.includes(modelId)
+	);
 }
 
 function formatStatus(ctx: ExtensionContext, modelId?: string): string {
 	const now = Date.now();
-	const cooling = [...state.failedUntil].filter(([, until]) => until > now).length;
+	const cooling = [...state.failedUntil].filter(
+		([, until]) => until > now,
+	).length;
 	const current = modelId ?? ctx.model?.id;
 	const theme = ctx.ui.theme;
 	const parts: string[] = [];
 
-	parts.push(state.enabled ? theme.fg("success", "zen:ON") : theme.fg("muted", "zen:OFF"));
+	parts.push(
+		state.enabled ? theme.fg("success", "zen:ON") : theme.fg("muted", "zen:OFF"),
+	);
 
 	if (current) {
 		parts.push(theme.fg("text", current));
@@ -206,7 +228,9 @@ function refreshWidget(ctx: ExtensionContext): void {
 	];
 	const current = ctx.model;
 	if (current) {
-		const mark = isOnFallbackModel(current.id) ? theme.fg("warning", " (fallback)") : "";
+		const mark = isOnFallbackModel(current.id)
+			? theme.fg("warning", " (fallback)")
+			: "";
 		lines.push(`${theme.fg("dim", "model:")} ${current.id}${mark}`);
 	}
 	if (cooling.length === 0) {
@@ -215,7 +239,9 @@ function refreshWidget(ctx: ExtensionContext): void {
 		lines.push(theme.fg("dim", "cooling down:"));
 		for (const [id, until] of cooling) {
 			const secs = Math.max(1, Math.round((until - now) / 1000));
-			lines.push(`  ${theme.fg("warning", id)} ${theme.fg("dim", `(${Math.floor(secs / 60)}m ${secs % 60}s)`)}`);
+			lines.push(
+				`  ${theme.fg("warning", id)} ${theme.fg("dim", `(${Math.floor(secs / 60)}m ${secs % 60}s)`)}`,
+			);
 		}
 	}
 	try {
@@ -224,7 +250,6 @@ function refreshWidget(ctx: ExtensionContext): void {
 		/* ignore */
 	}
 }
-
 
 function isZenProvider(ctx: ExtensionContext): boolean {
 	const model = ctx.model;
@@ -240,7 +265,10 @@ function isZenProvider(ctx: ExtensionContext): boolean {
 	return true;
 }
 
-async function maybeFallback(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
+async function maybeFallback(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+): Promise<void> {
 	const model = ctx.model;
 	if (!model) return;
 	if (!isZenProvider(ctx)) return;
@@ -267,7 +295,10 @@ async function maybeFallback(pi: ExtensionAPI, ctx: ExtensionContext): Promise<v
 
 	if (!chosenId) {
 		state.lastSwitchAt = now;
-		ctx.ui.notify("Zen: all free models are currently rate-limited, cooling down.", "warn");
+		ctx.ui.notify(
+			"Zen: all free models are currently rate-limited, cooling down.",
+			"warn",
+		);
 		refreshStatus(ctx);
 		refreshWidget(ctx);
 		return;
@@ -278,14 +309,20 @@ async function maybeFallback(pi: ExtensionAPI, ctx: ExtensionContext): Promise<v
 
 	const ok = await pi.setModel(target);
 	if (!ok) {
-		ctx.ui.notify(`Zen: could not switch to ${chosenId} (no credentials).`, "error");
+		ctx.ui.notify(
+			`Zen: could not switch to ${chosenId} (no credentials).`,
+			"error",
+		);
 		return;
 	}
 
 	state.lastSwitchAt = now;
 	// Mark the exhausted model so we don't immediately flip back to it.
 	state.failedUntil.set(model.id, now + FAIL_COOLDOWN_MS);
-	ctx.ui.notify(`Zen: ${model.id} rate-limited → switched to ${chosenId}`, "info");
+	ctx.ui.notify(
+		`Zen: ${model.id} rate-limited → switched to ${chosenId}`,
+		"info",
+	);
 	pi.events.emit("zen:fallback", { from: model.id, to: chosenId });
 	refreshStatus(ctx);
 	refreshWidget(ctx);
@@ -349,27 +386,182 @@ export default function (pi: ExtensionAPI) {
 
 	/* -------- commands -------- */
 
+	const ZEN_DOCS: Record<string, string> = {
+		status: "zobrazí aktuální stav fallbacku a chladnoucí modely",
+		on: "zapne automatický fallback mezi Zen free modely",
+		off: "vypne automatický fallback",
+		toggle: "přepne stav zapnuto/vypnuto",
+		reset: "vymaže cooldowny selhání a vrátí výchozí model",
+		widget: "zobrazí/skryje stavový widget nad editorem (on|off|toggle)",
+		help: "zobrazí podrobnou nápovědu a pořadí modelů",
+	};
+
+	const showZenHelp = (ctx: ExtensionContext) => {
+		const now = Date.now();
+		const cooling = [...state.failedUntil]
+			.filter(([, until]) => until > now)
+			.map(([id, until]) => {
+				const secs = Math.max(1, Math.round((until - now) / 1000));
+				return `${id} (${Math.floor(secs / 60)}m ${secs % 60}s)`;
+			});
+		const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "žádný";
+		ctx.ui.notify(
+			[
+				`pi-zen-fallback — stav: ${state.enabled ? "ZAPNUTO (ON)" : "VYPNUTO (OFF)"}`,
+				"Automatické přepínání mezi bezplatnými modely OpenCode Zen při vyčerpání limitu (HTTP 429).",
+				"",
+				"Příkazy:",
+				"/zen                    — tato nápověda + stav",
+				"/zen on|off             — zapne / vypne auto-fallback",
+				"/zen toggle             — přepne stav zapnuto/vypnuto",
+				"/zen reset              — vymaže cooldowny a vrátí výchozí model",
+				"/zen widget [on|off]    — zapne/vypne detailní widget nad editorem",
+				"/zen status             — zobrazí rychlý stav",
+				"",
+				`Aktivní model: ${model}${isOnFallbackModel(ctx.model?.id) ? " (fallback)" : ""}`,
+				`Chladnoucí modely (${cooling.length}): ${cooling.join(", ") || "žádné"}`,
+				`Widget nad editorem: ${widgetVisible ? "zobrazen" : "skryt"}`,
+				`Pořadí fallbacku: ${FALLBACK_ORDER.join(" → ")}`,
+			].join("\n"),
+			"info",
+		);
+	};
+
+	pi.registerCommand("zen", {
+		description:
+			"pi-zen-fallback: auto-fallback mezi bezplatnými OpenCode Zen modely při rate-limitu",
+		getArgumentCompletions: (prefix: string) => {
+			const tokens = prefix.split(/\s+/).filter(Boolean);
+			const trailingSpace = /\s$/.test(prefix);
+
+			// Druhé slovo — např. /zen widget on|off|toggle
+			if (tokens.length > 1 || (trailingSpace && tokens.length === 1)) {
+				const cmd = tokens[0]?.toLowerCase();
+				const arg = (tokens.length > 1 ? tokens[1] : "").toLowerCase();
+
+				if (cmd === "widget") {
+					const items = [
+						{
+							value: "on",
+							label: "widget on",
+							description: "zobrazit widget nad editorem",
+						},
+						{ value: "off", label: "widget off", description: "skrýt widget" },
+						{
+							value: "toggle",
+							label: "widget toggle",
+							description: "přepnout zobrazení widgetu",
+						},
+					];
+					const filtered = items.filter((i) => i.value.startsWith(arg));
+					return filtered.length > 0 ? filtered : null;
+				}
+				return null;
+			}
+
+			// První slovo — podpříkazy
+			const typed = (tokens[0] ?? "").toLowerCase();
+			const items = Object.entries(ZEN_DOCS)
+				.filter(([key]) => key.startsWith(typed))
+				.map(([value, description]) => ({ value, label: value, description }));
+			return items.length > 0 ? items : null;
+		},
+		handler: async (args, ctx) => {
+			const [sub, ...rest] = args.trim().split(/\s+/).filter(Boolean);
+			const arg = rest[0]?.toLowerCase();
+
+			if (!sub || sub === "help" || sub === "status") {
+				showZenHelp(ctx);
+				refreshStatus(ctx);
+				refreshWidget(ctx);
+				return;
+			}
+
+			if (sub === "on") {
+				state.enabled = true;
+				ctx.ui.notify("Zen auto-fallback: ZAPNUTO (ON)", "info");
+				refreshStatus(ctx);
+				refreshWidget(ctx);
+				return;
+			}
+
+			if (sub === "off") {
+				state.enabled = false;
+				ctx.ui.notify("Zen auto-fallback: VYPNUTO (OFF)", "info");
+				refreshStatus(ctx);
+				refreshWidget(ctx);
+				return;
+			}
+
+			if (sub === "toggle") {
+				state.enabled = !state.enabled;
+				ctx.ui.notify(`Zen auto-fallback: ${state.enabled ? "ON" : "OFF"}`, "info");
+				refreshStatus(ctx);
+				refreshWidget(ctx);
+				return;
+			}
+
+			if (sub === "reset") {
+				state.failedUntil.clear();
+				state.lastSwitchAt = 0;
+				const defaultModel = ctx.modelRegistry.find(
+					ZEN_PROVIDER,
+					FALLBACK_ORDER[0],
+				);
+				if (defaultModel) {
+					await pi.setModel(defaultModel);
+					ctx.ui.notify(
+						`Zen resetován → výchozí model: ${FALLBACK_ORDER[0]}`,
+						"info",
+					);
+				} else {
+					ctx.ui.notify("Zen cooldowny vymazány.", "info");
+				}
+				refreshStatus(ctx);
+				refreshWidget(ctx);
+				return;
+			}
+
+			if (sub === "widget") {
+				if (arg === "on") widgetVisible = true;
+				else if (arg === "off") widgetVisible = false;
+				else widgetVisible = !widgetVisible;
+
+				if (widgetVisible) {
+					refreshWidget(ctx);
+					ctx.ui.notify("Zen widget zobrazen", "info");
+				} else {
+					try {
+						ctx.ui.setWidget(WIDGET_KEY, undefined);
+					} catch {
+						/* ignore */
+					}
+					ctx.ui.notify("Zen widget skryt", "info");
+				}
+				return;
+			}
+
+			ctx.ui.notify(
+				"Neznámý příkaz. Použijte: /zen [on|off|toggle|reset|widget|status|help]",
+				"warning",
+			);
+		},
+	});
+
 	pi.registerCommand("zen-status", {
 		description: "Show the zen free-tier fallback state",
+		getArgumentCompletions: () => null,
 		handler: (_args, ctx) => {
-			const now = Date.now();
-			const failed = [...state.failedUntil]
-				.filter(([, until]) => until > now)
-				.map(([id]) => id)
-				.join(", ");
-			const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "none";
-			ctx.ui.notify(
-				`Zen fallback: ${state.enabled ? "ON" : "OFF"} | model: ${model}` +
-					` | cooling down: ${failed || "none"}`,
-				"info",
-			);
+			showZenHelp(ctx);
 			refreshStatus(ctx);
 			refreshWidget(ctx);
 		},
 	});
 
 	pi.registerCommand("zen-reset", {
-		description: "Clear exhausted-model marks and return to the default zen model",
+		description:
+			"Clear exhausted-model marks and return to the default zen model",
+		getArgumentCompletions: () => null,
 		handler: async (_args, ctx) => {
 			state.failedUntil.clear();
 			state.lastSwitchAt = 0;
@@ -387,8 +579,22 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("zen-toggle", {
 		description: "Enable or disable zen auto-fallback for this process",
-		handler: (_args, ctx) => {
-			state.enabled = !state.enabled;
+		getArgumentCompletions: (prefix: string) => {
+			const items = [
+				{ value: "on", label: "on", description: "zapnout fallback" },
+				{ value: "off", label: "off", description: "vypnout fallback" },
+			];
+			const filtered = items.filter((i) =>
+				i.value.startsWith(prefix.trim().toLowerCase()),
+			);
+			return filtered.length > 0 ? filtered : null;
+		},
+		handler: (args, ctx) => {
+			const arg = args.trim().toLowerCase();
+			if (arg === "on") state.enabled = true;
+			else if (arg === "off") state.enabled = false;
+			else state.enabled = !state.enabled;
+
 			ctx.ui.notify(`Zen auto-fallback: ${state.enabled ? "ON" : "OFF"}`, "info");
 			refreshStatus(ctx);
 			refreshWidget(ctx);
@@ -397,18 +603,33 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("zen-widget", {
 		description: "Toggle the detailed zen fallback widget above the editor",
-		handler: (_args, ctx) => {
-			widgetVisible = !widgetVisible;
-			if (!widgetVisible) {
+		getArgumentCompletions: (prefix: string) => {
+			const items = [
+				{ value: "on", label: "on", description: "zobrazit widget" },
+				{ value: "off", label: "off", description: "skrýt widget" },
+				{ value: "toggle", label: "toggle", description: "přepnout widget" },
+			];
+			const filtered = items.filter((i) =>
+				i.value.startsWith(prefix.trim().toLowerCase()),
+			);
+			return filtered.length > 0 ? filtered : null;
+		},
+		handler: (args, ctx) => {
+			const arg = args.trim().toLowerCase();
+			if (arg === "on") widgetVisible = true;
+			else if (arg === "off") widgetVisible = false;
+			else widgetVisible = !widgetVisible;
+
+			if (widgetVisible) {
+				refreshWidget(ctx);
+				ctx.ui.notify("Zen widget shown", "info");
+			} else {
 				try {
 					ctx.ui.setWidget(WIDGET_KEY, undefined);
 				} catch {
 					/* ignore */
 				}
 				ctx.ui.notify("Zen widget hidden", "info");
-			} else {
-				refreshWidget(ctx);
-				ctx.ui.notify("Zen widget shown", "info");
 			}
 		},
 	});

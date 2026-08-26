@@ -433,27 +433,33 @@ export default function (pi: ExtensionAPI) {
 		getArgumentCompletions: (prefix: string) => {
 			const tokens = prefix.split(/\s+/).filter(Boolean);
 			const trailingSpace = /\s$/.test(prefix);
+			const normalizedPrefix = tokens.join(" ").toLowerCase();
 
 			// Druhé slovo — např. /zen widget on|off|toggle
 			if (tokens.length > 1 || (trailingSpace && tokens.length === 1)) {
 				const cmd = tokens[0]?.toLowerCase();
-				const arg = (tokens.length > 1 ? tokens[1] : "").toLowerCase();
 
 				if (cmd === "widget") {
 					const items = [
 						{
-							value: "on",
+							value: "widget on",
 							label: "widget on",
 							description: "zobrazit widget nad editorem",
 						},
-						{ value: "off", label: "widget off", description: "skrýt widget" },
 						{
-							value: "toggle",
+							value: "widget off",
+							label: "widget off",
+							description: "skrýt widget",
+						},
+						{
+							value: "widget toggle",
 							label: "widget toggle",
 							description: "přepnout zobrazení widgetu",
 						},
 					];
-					const filtered = items.filter((i) => i.value.startsWith(arg));
+					const filtered = items.filter((i) =>
+						i.value.toLowerCase().startsWith(normalizedPrefix),
+					);
 					return filtered.length > 0 ? filtered : null;
 				}
 				return null;
@@ -467,7 +473,8 @@ export default function (pi: ExtensionAPI) {
 			return items.length > 0 ? items : null;
 		},
 		handler: async (args, ctx) => {
-			const [sub, ...rest] = args.trim().split(/\s+/).filter(Boolean);
+			const [subRaw, ...rest] = args.trim().split(/\s+/).filter(Boolean);
+			const sub = subRaw?.toLowerCase();
 			const arg = rest[0]?.toLowerCase();
 
 			if (!sub || sub === "help" || sub === "status") {

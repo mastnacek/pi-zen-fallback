@@ -24,9 +24,9 @@
  * timer while the session is running.
  */
 
-import { existsSync, readFileSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -183,12 +183,32 @@ function isOnFallbackModel(modelId: string | undefined): boolean {
 	);
 }
 
-function formatStatus(ctx: ExtensionContext, modelId?: string): string {
+function isZenProvider(
+	ctx: ExtensionContext,
+	targetModel?: { provider?: string; id?: string },
+): boolean {
+	const model = targetModel ?? ctx.model;
+	if (!model) return false;
+	if (model.provider !== ZEN_PROVIDER) return false;
+	// Secondary confirmation via base URL (best-effort).
+	try {
+		const p = ctx.modelRegistry.getProvider(model.provider);
+		if (p?.baseUrl && !p.baseUrl.includes(ZEN_BASE_URL_MARKER)) return false;
+	} catch {
+		// If we can't inspect the provider, fall back to the id check only.
+	}
+	return true;
+}
+
+function formatStatus(
+	ctx: ExtensionContext,
+	targetModel?: { provider?: string; id?: string },
+): string {
 	const now = Date.now();
 	const cooling = [...state.failedUntil].filter(
 		([, until]) => until > now,
 	).length;
-	const current = modelId ?? ctx.model?.id;
+	const current = targetModel?.id ?? ctx.model?.id;
 	const theme = ctx.ui.theme;
 	const parts: string[] = [];
 
@@ -205,18 +225,36 @@ function formatStatus(ctx: ExtensionContext, modelId?: string): string {
 	return parts.join(" ");
 }
 
-function refreshStatus(ctx: ExtensionContext, modelId?: string): void {
+function refreshStatus(
+	ctx: ExtensionContext,
+	targetModel?: { provider?: string; id?: string },
+): void {
 	if (!ctx.hasUI) return;
 	try {
-		ctx.ui.setStatus(STATUS_KEY, formatStatus(ctx, modelId));
+		if (!isZenProvider(ctx, targetModel)) {
+			ctx.ui.setStatus(STATUS_KEY, "");
+			return;
+		}
+		ctx.ui.setStatus(STATUS_KEY, formatStatus(ctx, targetModel));
 	} catch {
 		/* ignore */
 	}
 }
 
-function refreshWidget(ctx: ExtensionContext): void {
+function refreshWidget(
+	ctx: ExtensionContext,
+	targetModel?: { provider?: string; id?: string },
+): void {
 	if (!widgetVisible) return;
 	if (!ctx.hasUI) return;
+	if (!isZenProvider(ctx, targetModel)) {
+		try {
+			ctx.ui.setWidget(WIDGET_KEY, []);
+		} catch {
+			/* ignore */
+		}
+		return;
+	}
 	const now = Date.now();
 	const cooling = [...state.failedUntil]
 		.filter(([, until]) => until > now)
@@ -226,7 +264,7 @@ function refreshWidget(ctx: ExtensionContext): void {
 		theme.fg("accent", "— zen fallback —") +
 			` ${state.enabled ? theme.fg("success", "ON") : theme.fg("muted", "OFF")}`,
 	];
-	const current = ctx.model;
+	const current = targetModel ?? ctx.model;
 	if (current) {
 		const mark = isOnFallbackModel(current.id)
 			? theme.fg("warning", " (fallback)")
@@ -249,20 +287,6 @@ function refreshWidget(ctx: ExtensionContext): void {
 	} catch {
 		/* ignore */
 	}
-}
-
-function isZenProvider(ctx: ExtensionContext): boolean {
-	const model = ctx.model;
-	if (!model) return false;
-	if (model.provider !== ZEN_PROVIDER) return false;
-	// Secondary confirmation via base URL (best-effort).
-	try {
-		const p = ctx.modelRegistry.getProvider(model.provider);
-		if (p?.baseUrl && !p.baseUrl.includes(ZEN_BASE_URL_MARKER)) return false;
-	} catch {
-		// If we can't inspect the provider, fall back to the id check only.
-	}
-	return true;
 }
 
 async function maybeFallback(
@@ -358,8 +382,8 @@ export default function (pi: ExtensionAPI) {
 
 	// Keep the status line in sync when the user manually switches models.
 	pi.on("model_select", (event, ctx) => {
-		refreshStatus(ctx, event.model.id);
-		refreshWidget(ctx);
+		refreshStatus(ctx, event.model);
+		refreshWidget(ctx, event.model);
 	});
 
 	// Capture which model the outgoing request actually targets. This lets us

@@ -43,12 +43,15 @@ and these free models (in fallback priority order):
 | Priority | Model |
 |----------|-------|
 | 1 | `deepseek-v4-flash-free` |
-| 2 | `hy3-free` |
-| 3 | `nemotron-3.5-lightning-free` |
-| 4 | `laguna-s-2.1-free` |
-| 5 | `mimo-v2.5-free` |
-| 6 | `nemotron-3-ultra-free` |
-| 7 | `big-pickle` |
+| 2 | `nemotron-3.5-lightning-free` |
+| 3 | `mimo-v2.5-free` |
+| 4 | `nemotron-3-ultra-free` |
+| 5 | `big-pickle` |
+| 6 | `ling-3.0-flash-fin-free` |
+| 7 | `muse-spark-1.2-contributor-free` |
+| 8 | `muse-spark-1.3-contributor-free` |
+
+> Model list last refreshed manually vs `https://opencode.ai/zen/v1/models` on 2026-09-10.
 
 If `models.json` already defines `zenfree` with models, the extension **defers to your configuration** and registers nothing.
 

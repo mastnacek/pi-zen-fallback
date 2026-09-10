@@ -47,14 +47,16 @@ const ZEN_BASE_URL_MARKER = "opencode.ai/zen";
 
 // Fallback priority. index 0 is the preferred/default model. We walk this list
 // forward (skipping the ones currently rate-limited) on each failure.
+// Manual refresh vs https://opencode.ai/zen/v1/models — 2026-09-10.
 const FALLBACK_ORDER = [
 	"deepseek-v4-flash-free",
-	"hy3-free",
 	"nemotron-3.5-lightning-free",
-	"laguna-s-2.1-free",
 	"mimo-v2.5-free",
 	"nemotron-3-ultra-free",
 	"big-pickle",
+	"ling-3.0-flash-fin-free",
+	"muse-spark-1.2-contributor-free",
+	"muse-spark-1.3-contributor-free",
 ];
 
 // HTTP statuses that we treat as "model temporarily unavailable, switch away".
@@ -77,6 +79,7 @@ const SWITCH_COOLDOWN_MS = 30 * 1000;
 // extension, so installing this plugin on a fresh pi needs NO models.json
 // editing. If the user already defined zenfree (with models) in models.json,
 // their configuration is left completely untouched.
+// Manual refresh vs https://opencode.ai/zen/v1/models — 2026-09-10.
 const FREE_MODELS = [
 	{ id: "big-pickle", name: "Big Pickle (free)", reasoning: true },
 	{
@@ -84,30 +87,43 @@ const FREE_MODELS = [
 		name: "DeepSeek V4 Flash Free",
 		reasoning: true,
 	},
-	{ id: "hy3-free", name: "Hy3 Free", reasoning: true },
 	{
 		id: "nemotron-3.5-lightning-free",
 		name: "Nemotron 3.5 Lightning Free",
 		reasoning: true,
 	},
+	{ id: "mimo-v2.5-free", name: "MiMo V2.5 Free", reasoning: true },
 	{
 		id: "nemotron-3-ultra-free",
 		name: "Nemotron 3 Ultra Free",
 		reasoning: true,
 	},
-	{ id: "mimo-v2.5-free", name: "MiMo V2.5 Free", reasoning: true },
-	{ id: "laguna-s-2.1-free", name: "Laguna S 2.1 Free", reasoning: true },
+	{
+		id: "ling-3.0-flash-fin-free",
+		name: "Ling 3.0 Flash Fin Free",
+		reasoning: true,
+	},
+	{
+		id: "muse-spark-1.2-contributor-free",
+		name: "Muse Spark 1.2 Free",
+		reasoning: true,
+	},
+	{
+		id: "muse-spark-1.3-contributor-free",
+		name: "Muse Spark 1.3 Free",
+		reasoning: true,
+	},
 ].map((m) => ({
 	...m,
 	input: ["text"],
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	contextWindow: 128000,
-	maxTokens: 16384,
+	contextWindow: 200000,
+	maxTokens: 32768,
 }));
 
 const ZEN_DEFAULT_BASE_URL = "https://opencode.ai/zen/v1";
 const ZEN_DEFAULT_UA =
-	"opencode/1.18.18 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14";
+	"opencode/1.18.30 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14";
 
 // Read the user's zenfree provider config from models.json (if any). Returns
 // null when zenfree is not defined there at all. `hasModels` tells us whether

@@ -47,16 +47,22 @@ const ZEN_BASE_URL_MARKER = "opencode.ai/zen";
 
 // Fallback priority. index 0 is the preferred/default model. We walk this list
 // forward (skipping the ones currently rate-limited) on each failure.
+// NOTE: Zen is NOT a single protocol. The Muse Spark free models speak the
+// OpenAI Responses API (POST /responses); the rest speak OpenAI Chat
+// Completions (POST /chat/completions). Sending a Spark model to
+// /chat/completions makes the gateway answer HTTP 500 "Internal server
+// error" — so every model below carries its own `api` in FREE_MODELS,
+// mirroring pi's built-in `opencode` provider catalog.
 // Manual refresh vs https://opencode.ai/zen/v1/models — 2026-09-10.
 let FALLBACK_ORDER = [
-	"deepseek-v4-flash-free",
-	"nemotron-3.5-lightning-free",
 	"mimo-v2.5-free",
-	"nemotron-3-ultra-free",
 	"big-pickle",
 	"ling-3.0-flash-fin-free",
-	"muse-spark-1.2-contributor-free",
+	"nemotron-3-ultra-free",
+	"nemotron-3.5-lightning-free",
 	"muse-spark-1.3-contributor-free",
+	"muse-spark-1.2-contributor-free",
+	"deepseek-v4-flash-free",
 ];
 
 // HTTP statuses that we treat as "model temporarily unavailable, switch away".
@@ -79,47 +85,135 @@ const SWITCH_COOLDOWN_MS = 30 * 1000;
 // extension, so installing this plugin on a fresh pi needs NO models.json
 // editing. If the user already defined zenfree (with models) in models.json,
 // their configuration is left completely untouched.
+//
+// Every entry carries its own `api` + `compat`, mirroring pi's built-in
+// `opencode` provider catalog:
+// - Chat Completions models must NOT receive `store:true`, the `developer`
+//   role, or `max_completion_tokens` — the Zen gateway answers those with
+//   HTTP 500, hence CHAT_COMPLETIONS_COMPAT.
+// - Muse Spark free models speak the Responses API (wrong endpoint = HTTP
+//   500 "Internal server error"), hence `api: "openai-responses"`.
 // Manual refresh vs https://opencode.ai/zen/v1/models — 2026-09-10.
+const CHAT_COMPLETIONS_COMPAT = {
+	supportsStore: false,
+	supportsDeveloperRole: false,
+	maxTokensField: "max_tokens",
+} as const;
+
+const RESPONSES_COMPAT = {
+	sessionAffinityFormat: "openai-nosession",
+} as const;
+
 const FREE_MODELS = [
-	{ id: "big-pickle", name: "Big Pickle (free)", reasoning: true },
 	{
-		id: "deepseek-v4-flash-free",
-		name: "DeepSeek V4 Flash Free",
+		id: "mimo-v2.5-free",
+		name: "MiMo V2.5 Free",
 		reasoning: true,
+		api: "openai-completions" as const,
+		input: ["text", "image"] as Array<"text" | "image">,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 200000,
+		maxTokens: 32000,
+		compat: CHAT_COMPLETIONS_COMPAT,
 	},
 	{
-		id: "nemotron-3.5-lightning-free",
-		name: "Nemotron 3.5 Lightning Free",
+		id: "big-pickle",
+		name: "Big Pickle (free)",
 		reasoning: true,
-	},
-	{ id: "mimo-v2.5-free", name: "MiMo V2.5 Free", reasoning: true },
-	{
-		id: "nemotron-3-ultra-free",
-		name: "Nemotron 3 Ultra Free",
-		reasoning: true,
+		api: "openai-completions" as const,
+		input: ["text"] as Array<"text" | "image">,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 200000,
+		maxTokens: 32000,
+		compat: CHAT_COMPLETIONS_COMPAT,
 	},
 	{
 		id: "ling-3.0-flash-fin-free",
 		name: "Ling 3.0 Flash Fin Free",
 		reasoning: true,
+		api: "openai-completions" as const,
+		input: ["text"] as Array<"text" | "image">,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 262144,
+		maxTokens: 32768,
+		compat: CHAT_COMPLETIONS_COMPAT,
 	},
 	{
-		id: "muse-spark-1.2-contributor-free",
-		name: "Muse Spark 1.2 Free",
+		id: "nemotron-3-ultra-free",
+		name: "Nemotron 3 Ultra Free",
 		reasoning: true,
+		api: "openai-completions" as const,
+		input: ["text"] as Array<"text" | "image">,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1000000,
+		maxTokens: 128000,
+		compat: CHAT_COMPLETIONS_COMPAT,
+	},
+	{
+		id: "nemotron-3.5-lightning-free",
+		name: "Nemotron 3.5 Lightning Free",
+		reasoning: true,
+		api: "openai-completions" as const,
+		input: ["text"] as Array<"text" | "image">,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 262144,
+		maxTokens: 262144,
+		compat: CHAT_COMPLETIONS_COMPAT,
 	},
 	{
 		id: "muse-spark-1.3-contributor-free",
 		name: "Muse Spark 1.3 Free",
 		reasoning: true,
+		api: "openai-responses" as const,
+		input: ["text", "image"] as Array<"text" | "image">,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1048576,
+		maxTokens: 131072,
+		compat: RESPONSES_COMPAT,
+		thinkingLevelMap: {
+			off: null,
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+			xhigh: "xhigh",
+			max: null,
+		},
 	},
-].map((m) => ({
-	...m,
-	input: ["text"] as Array<"text" | "image">,
-	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	contextWindow: 200000,
-	maxTokens: 32768,
-}));
+	{
+		id: "muse-spark-1.2-contributor-free",
+		name: "Muse Spark 1.2 Free",
+		reasoning: true,
+		api: "openai-responses" as const,
+		input: ["text", "image"] as Array<"text" | "image">,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1048576,
+		maxTokens: 131072,
+		compat: RESPONSES_COMPAT,
+		thinkingLevelMap: {
+			off: null,
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+			xhigh: "xhigh",
+			max: null,
+		},
+	},
+	{
+		// Legacy entry: still listed by /v1/models, but no longer in pi's
+		// curated catalog or the Zen docs table — kept last as fallback.
+		id: "deepseek-v4-flash-free",
+		name: "DeepSeek V4 Flash Free",
+		reasoning: true,
+		api: "openai-completions" as const,
+		input: ["text"] as Array<"text" | "image">,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 200000,
+		maxTokens: 32768,
+		compat: CHAT_COMPLETIONS_COMPAT,
+	},
+];
 
 const ZEN_DEFAULT_BASE_URL = "https://opencode.ai/zen/v1";
 
@@ -152,22 +246,26 @@ function prettifyModelId(id: string): string {
 	);
 }
 
-function knownModelName(id: string): string {
-	return FREE_MODELS.find((m) => m.id === id)?.name ?? prettifyModelId(id);
-}
-
-// Build provider-model entries for a given priority order. Cost stays zero
-// (free tier); limits use the same safe defaults as the embedded catalogue.
+// Build provider-model entries for a given priority order. Known ids reuse
+// the embedded catalogue verbatim (correct `api`/`compat` included); brand
+// new gateway ids default to Chat Completions, which is what all current
+// free models except Muse Spark speak.
 function toProviderModels(orderedIds: string[]): ZenFreeModel[] {
-	return orderedIds.map((id) => ({
-		id,
-		name: knownModelName(id),
-		reasoning: true,
-		input: ["text"] as Array<"text" | "image">,
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 200000,
-		maxTokens: 32768,
-	}));
+	return orderedIds.map((id) => {
+		const embedded = FREE_MODELS.find((m) => m.id === id);
+		if (embedded) return { ...embedded };
+		return {
+			id,
+			name: prettifyModelId(id),
+			reasoning: true,
+			api: "openai-completions" as const,
+			input: ["text"] as Array<"text" | "image">,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 200000,
+			maxTokens: 32768,
+			compat: CHAT_COMPLETIONS_COMPAT,
+		};
+	});
 }
 
 // Fetch the live /v1/models catalog from the zen gateway and return free-model
@@ -202,9 +300,29 @@ function readCachedModels(): ZenFreeModel[] | null {
 			models?: ZenFreeModel[];
 		};
 		if (!Array.isArray(raw.models) || raw.models.length === 0) return null;
-		return raw.models.filter(
-			(m) => m && typeof m.id === "string" && typeof m.name === "string",
-		);
+		const upgraded: ZenFreeModel[] = [];
+		for (const m of raw.models) {
+			if (!m || typeof m.id !== "string" || typeof m.name !== "string") {
+				continue;
+			}
+			// Known ids always use the embedded catalogue, so an old cache
+			// (written before per-model `api`/`compat` existed) can never
+			// re-register a Responses model as Chat Completions.
+			const embedded = FREE_MODELS.find((k) => k.id === m.id);
+			if (embedded) {
+				upgraded.push({ ...embedded });
+				continue;
+			}
+			if (
+				m.api === "openai-responses" ||
+				m.api === "openai-completions"
+			) {
+				upgraded.push(m);
+			} else {
+				upgraded.push({ ...toProviderModels([m.id])[0] });
+			}
+		}
+		return upgraded.length > 0 ? upgraded : null;
 	} catch {
 		return null; // no cache / unreadable — use embedded catalogue
 	}
@@ -260,6 +378,11 @@ function ensureZenProviderRegistered(pi: ExtensionAPI): void {
 	pi.registerProvider("zenfree", {
 		name: "OpenCode Zen (free)",
 		baseUrl: existing?.baseUrl ?? ZEN_DEFAULT_BASE_URL,
+		// Provider-level default only: entries in FREE_MODELS carry their own
+		// per-model `api` (Muse Spark → "openai-responses"), which wins.
+		// NOTE: pi itself attaches `x-opencode-session` / `x-opencode-client`
+		// to every opencode.ai request — without them the free tier answers
+		// "OpenCode's free tier can only be used in OpenCode".
 		api: existing?.api ?? "openai-completions",
 		apiKey: existing?.apiKey ?? "public",
 		headers: existing?.headers ?? { "user-agent": ZEN_DEFAULT_UA },

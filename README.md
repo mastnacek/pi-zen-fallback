@@ -40,16 +40,21 @@ If you don't already have a `zenfree` provider in `~/.pi/agent/models.json`, the
 
 and these free models (in fallback priority order):
 
-| Priority | Model |
-| ---------- | ------- |
-| 1 | `deepseek-v4-flash-free` |
-| 2 | `nemotron-3.5-lightning-free` |
-| 3 | `mimo-v2.5-free` |
-| 4 | `nemotron-3-ultra-free` |
-| 5 | `big-pickle` |
-| 6 | `ling-3.0-flash-fin-free` |
-| 7 | `muse-spark-1.2-contributor-free` |
-| 8 | `muse-spark-1.3-contributor-free` |
+| Priority | Model | Protokol |
+| ---------- | ------- | -------- |
+| 1 | `mimo-v2.5-free` | Chat Completions |
+| 2 | `big-pickle` | Chat Completions |
+| 3 | `ling-3.0-flash-fin-free` | Chat Completions |
+| 4 | `nemotron-3-ultra-free` | Chat Completions |
+| 5 | `nemotron-3.5-lightning-free` | Chat Completions |
+| 6 | `muse-spark-1.3-contributor-free` | Responses (`/v1/responses`) |
+| 7 | `muse-spark-1.2-contributor-free` | Responses (`/v1/responses`) |
+| 8 | `deepseek-v4-flash-free` (legacy) | Chat Completions |
+
+> Zen není jeden protokol: většina free modelů mluví OpenAI Chat Completions,
+> ale Muse Spark free modely mluví OpenAI Responses API. Plugin proto každému
+> modelu registruje vlastní `api` + `compat` (stejně jako vestavěný `opencode`
+> provider v pi) — poslat Spark na `/chat/completions` vrací HTTP 500.
 
 > Model list last refreshed manually vs `https://opencode.ai/zen/v1/models` on 2026-09-10.
 

@@ -24,7 +24,7 @@
  * timer while the session is running.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -48,7 +48,7 @@ const ZEN_BASE_URL_MARKER = "opencode.ai/zen";
 // Fallback priority. index 0 is the preferred/default model. We walk this list
 // forward (skipping the ones currently rate-limited) on each failure.
 // Manual refresh vs https://opencode.ai/zen/v1/models — 2026-09-10.
-const FALLBACK_ORDER = [
+let FALLBACK_ORDER = [
 	"deepseek-v4-flash-free",
 	"nemotron-3.5-lightning-free",
 	"mimo-v2.5-free",
@@ -115,13 +115,114 @@ const FREE_MODELS = [
 	},
 ].map((m) => ({
 	...m,
-	input: ["text"],
+	input: ["text"] as Array<"text" | "image">,
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	contextWindow: 200000,
 	maxTokens: 32768,
 }));
 
 const ZEN_DEFAULT_BASE_URL = "https://opencode.ai/zen/v1";
+
+/* ------------------------------------------------------------------ */
+/* Manual catalogue refresh from the OpenCode Zen gateway              */
+/* ------------------------------------------------------------------ */
+
+const ZEN_MODELS_URL = "https://opencode.ai/zen/v1/models";
+const ZEN_CACHE_FILE = "zen-free-models.cache.json";
+
+type ZenFreeModel = (typeof FREE_MODELS)[number];
+
+function zenAgentDir(): string {
+	return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+}
+
+function zenCachePath(): string {
+	return join(zenAgentDir(), ZEN_CACHE_FILE);
+}
+
+// Pretty-name an unknown model id, e.g. "north-mini-code-free" → "North Mini Code Free".
+function prettifyModelId(id: string): string {
+	if (id === "big-pickle") return "Big Pickle (free)";
+	return (
+		id
+			.replace(/-free$/, "")
+			.split("-")
+			.map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+			.join(" ") + " Free"
+	);
+}
+
+function knownModelName(id: string): string {
+	return FREE_MODELS.find((m) => m.id === id)?.name ?? prettifyModelId(id);
+}
+
+// Build provider-model entries for a given priority order. Cost stays zero
+// (free tier); limits use the same safe defaults as the embedded catalogue.
+function toProviderModels(orderedIds: string[]): ZenFreeModel[] {
+	return orderedIds.map((id) => ({
+		id,
+		name: knownModelName(id),
+		reasoning: true,
+		input: ["text"] as Array<"text" | "image">,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 200000,
+		maxTokens: 32768,
+	}));
+}
+
+// Fetch the live /v1/models catalog from the zen gateway and return free-model
+// ids in stable priority order: embedded/known order first, then new models the
+// gateway now serves (appended in gateway order). Throws on network failure.
+async function fetchOrderedZenFreeIds(): Promise<string[]> {
+	const res = await fetch(ZEN_MODELS_URL, {
+		headers: { "user-agent": ZEN_DEFAULT_UA },
+		signal: AbortSignal.timeout(15_000),
+	});
+	if (!res.ok) throw new Error(`HTTP ${res.status}`);
+	const data = (await res.json()) as { data?: { id: string }[] };
+	const live = data.data ?? [];
+	const liveSet = new Set(live.map((m) => m.id));
+	const free = live
+		.map((m) => m.id)
+		.filter((id) => id === "big-pickle" || id.endsWith("-free"));
+
+	const ordered: string[] = [];
+	for (const id of FALLBACK_ORDER) if (liveSet.has(id)) ordered.push(id);
+	for (const id of free) if (!ordered.includes(id)) ordered.push(id);
+	return ordered;
+}
+
+// Persisted catalogue (written by /zen refresh). Cache wins over the embedded
+// list on startup so a manual refresh survives /reload; entries without a
+// valid shape are dropped.
+function readCachedModels(): ZenFreeModel[] | null {
+	try {
+		const raw = JSON.parse(readFileSync(zenCachePath(), "utf8")) as {
+			fetchedAt?: number;
+			models?: ZenFreeModel[];
+		};
+		if (!Array.isArray(raw.models) || raw.models.length === 0) return null;
+		return raw.models.filter(
+			(m) => m && typeof m.id === "string" && typeof m.name === "string",
+		);
+	} catch {
+		return null; // no cache / unreadable — use embedded catalogue
+	}
+}
+
+function writeZenCache(models: ZenFreeModel[]): void {
+	try {
+		const tmp = `${zenCachePath()}.tmp`;
+		writeFileSync(
+			tmp,
+			JSON.stringify({ fetchedAt: Date.now(), models }, null, 2),
+			"utf8",
+		);
+		renameSync(tmp, zenCachePath());
+	} catch {
+		/* non-fatal: refresh still applies for this process */
+	}
+}
 const ZEN_DEFAULT_UA =
 	"opencode/1.18.30 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14";
 
@@ -162,7 +263,7 @@ function ensureZenProviderRegistered(pi: ExtensionAPI): void {
 		api: existing?.api ?? "openai-completions",
 		apiKey: existing?.apiKey ?? "public",
 		headers: existing?.headers ?? { "user-agent": ZEN_DEFAULT_UA },
-		models: FREE_MODELS,
+		models: readCachedModels() ?? FREE_MODELS,
 	});
 }
 
@@ -195,7 +296,9 @@ let widgetVisible = false;
 
 function isOnFallbackModel(modelId: string | undefined): boolean {
 	return (
-		!!modelId && modelId !== FALLBACK_ORDER[0] && FALLBACK_ORDER.includes(modelId)
+		Boolean(modelId) &&
+		modelId !== FALLBACK_ORDER[0] &&
+		FALLBACK_ORDER.includes(modelId)
 	);
 }
 
@@ -337,7 +440,7 @@ async function maybeFallback(
 		state.lastSwitchAt = now;
 		ctx.ui.notify(
 			"Zen: all free models are currently rate-limited, cooling down.",
-			"warn",
+			"warning",
 		);
 		refreshStatus(ctx);
 		refreshWidget(ctx);
@@ -433,6 +536,7 @@ export default function (pi: ExtensionAPI) {
 		toggle: "přepne stav zapnuto/vypnuto",
 		reset: "vymaže cooldowny selhání a vrátí výchozí model",
 		widget: "zobrazí/skryje stavový widget nad editorem (on|off|toggle)",
+		refresh: "stáhne aktuální seznam free modelů z OpenCode Zen brány (ručně)",
 		help: "zobrazí podrobnou nápovědu a pořadí modelů",
 	};
 
@@ -456,6 +560,7 @@ export default function (pi: ExtensionAPI) {
 				"/zen toggle             — přepne stav zapnuto/vypnuto",
 				"/zen reset              — vymaže cooldowny a vrátí výchozí model",
 				"/zen widget [on|off]    — zapne/vypne detailní widget nad editorem",
+				"/zen refresh            — stáhne aktuální free modely z brány (ruční aktualizace)",
 				"/zen status             — zobrazí rychlý stav",
 				"",
 				`Aktivní model: ${model}${isOnFallbackModel(ctx.model?.id) ? " (fallback)" : ""}`,
@@ -588,8 +693,65 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
+			if (sub === "refresh") {
+				try {
+					ctx.ui.notify(
+						"Zen: stahuji aktuální seznam free modelů z opencode.ai/zen ...",
+						"info",
+					);
+					const orderedIds = await fetchOrderedZenFreeIds();
+					if (orderedIds.length === 0) {
+						ctx.ui.notify(
+							"Zen: brána nevrátila žádný free model — seznam se nezměnil.",
+							"warning",
+						);
+						return;
+					}
+					const models = toProviderModels(orderedIds);
+					writeZenCache(models);
+
+					// Live re-register for THIS process; cache file carries the
+					// update across /reload (read again in ensureZenProviderRegistered).
+					FALLBACK_ORDER = orderedIds;
+					const existing = readZenfreeConfigFromModelsJson();
+					ctx.modelRegistry.registerProvider(ZEN_PROVIDER, {
+						name: "OpenCode Zen (free)",
+						baseUrl: existing?.baseUrl ?? ZEN_DEFAULT_BASE_URL,
+						api: existing?.api ?? "openai-completions",
+						apiKey: existing?.apiKey ?? "public",
+						headers: existing?.headers ?? { "user-agent": ZEN_DEFAULT_UA },
+						models,
+					});
+					await ctx.modelRegistry.refresh({
+						allowNetwork: false,
+						providers: [ZEN_PROVIDER],
+					});
+
+					const current = ctx.model?.id;
+					const stillActive = orderedIds.includes(current ?? "");
+					ctx.ui.notify(
+						[
+							`Zen: seznam aktualizován (${orderedIds.length} free modelů).`,
+							`Pořadí: ${orderedIds.join(" → ")}`,
+							stillActive
+								? `Aktivní model ${current} zůstává.`
+								: `Aktivní model ${current ?? "?"} už není v seznamu — použijte /zen reset.`,
+						].join("\n"),
+						"info",
+					);
+				} catch (error) {
+					ctx.ui.notify(
+						`Zen: aktualizace selhala — ${error instanceof Error ? error.message : String(error)}`,
+						"error",
+					);
+				}
+				refreshStatus(ctx);
+				refreshWidget(ctx);
+				return;
+			}
+
 			ctx.ui.notify(
-				"Neznámý příkaz. Použijte: /zen [on|off|toggle|reset|widget|status|help]",
+				"Neznámý příkaz. Použijte: /zen [on|off|toggle|reset|widget|refresh|status|help]",
 				"warning",
 			);
 		},
@@ -598,8 +760,56 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("zen-status", {
 		description: "Zobrazit stav fallbacku mezi bezplatnými modely OpenCode Zen",
 		getArgumentCompletions: () => null,
-		handler: (_args, ctx) => {
+		handler: async (_args, ctx) => {
 			showZenHelp(ctx);
+			refreshStatus(ctx);
+			refreshWidget(ctx);
+		},
+	});
+
+	pi.registerCommand("zen-refresh", {
+		description: "Stáhnout aktuální seznam free modelů z OpenCode Zen brány",
+		getArgumentCompletions: () => null,
+		handler: async (_args, ctx) => {
+			try {
+				ctx.ui.notify(
+					"Zen: stahuji aktuální seznam free modelů z opencode.ai/zen ...",
+					"info",
+				);
+				const orderedIds = await fetchOrderedZenFreeIds();
+				if (orderedIds.length === 0) {
+					ctx.ui.notify(
+						"Zen: brána nevrátila žádný free model — seznam se nezměnil.",
+						"warning",
+					);
+					return;
+				}
+				const models = toProviderModels(orderedIds);
+				writeZenCache(models);
+				FALLBACK_ORDER = orderedIds;
+				const existing = readZenfreeConfigFromModelsJson();
+				ctx.modelRegistry.registerProvider(ZEN_PROVIDER, {
+					name: "OpenCode Zen (free)",
+					baseUrl: existing?.baseUrl ?? ZEN_DEFAULT_BASE_URL,
+					api: existing?.api ?? "openai-completions",
+					apiKey: existing?.apiKey ?? "public",
+					headers: existing?.headers ?? { "user-agent": ZEN_DEFAULT_UA },
+					models,
+				});
+				await ctx.modelRegistry.refresh({
+					allowNetwork: false,
+					providers: [ZEN_PROVIDER],
+				});
+				ctx.ui.notify(
+					`Zen: seznam aktualizován (${orderedIds.length} free modelů): ${orderedIds.join(" → ")}`,
+					"info",
+				);
+			} catch (error) {
+				ctx.ui.notify(
+					`Zen: aktualizace selhala — ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+			}
 			refreshStatus(ctx);
 			refreshWidget(ctx);
 		},
@@ -643,7 +853,7 @@ export default function (pi: ExtensionAPI) {
 			);
 			return filtered.length > 0 ? filtered : null;
 		},
-		handler: (args, ctx) => {
+		handler: async (args, ctx) => {
 			const arg = args.trim().toLowerCase();
 			if (arg === "on") state.enabled = true;
 			else if (arg === "off") state.enabled = false;
@@ -676,7 +886,7 @@ export default function (pi: ExtensionAPI) {
 			);
 			return filtered.length > 0 ? filtered : null;
 		},
-		handler: (args, ctx) => {
+		handler: async (args, ctx) => {
 			const arg = args.trim().toLowerCase();
 			if (arg === "on") widgetVisible = true;
 			else if (arg === "off") widgetVisible = false;

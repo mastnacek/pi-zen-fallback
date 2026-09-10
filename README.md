@@ -41,7 +41,7 @@ If you don't already have a `zenfree` provider in `~/.pi/agent/models.json`, the
 and these free models (in fallback priority order):
 
 | Priority | Model |
-|----------|-------|
+| ---------- | ------- |
 | 1 | `deepseek-v4-flash-free` |
 | 2 | `nemotron-3.5-lightning-free` |
 | 3 | `mimo-v2.5-free` |
@@ -58,11 +58,13 @@ If `models.json` already defines `zenfree` with models, the extension **defers t
 ## Commands
 
 | Command | Description |
-|---------|-------------|
+| --------- | ------------- |
 | `/zen-status` | Show fallback state: on/off, active model, models cooling down |
 | `/zen-reset` | Clear exhausted-model marks and return to the default model (`deepseek-v4-flash-free`) |
 | `/zen-toggle` | Enable/disable auto-fallback for this process |
 | `/zen-widget` | Toggle the detailed fallback widget above the editor |
+| `/zen-refresh` | Manually re-fetch the free model list from the OpenCode Zen gateway (`https://opencode.ai/zen/v1/models`) and re-register it live; result is cached so it survives `/reload` |
+| `/zen refresh` | Same action as a subcommand of the `/zen` menu |
 
 ## How it works
 

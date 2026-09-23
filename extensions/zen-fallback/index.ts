@@ -600,13 +600,21 @@ async function maybeFallback(
 /* ------------------------------------------------------------------ */
 
 export default function (pi: ExtensionAPI) {
+	/** Unsubscribers from every `pi.on()`; drained on session_shutdown (AGENTS §5). */
+	const unsubscribers: Array<() => void> = [];
+
+	/** Retain a `pi.on()` return value; older engine typings declare it void. */
+	const track = (result: unknown): void => {
+		if (typeof result === "function") unsubscribers.push(result as () => void);
+	};
+
 	// Self-setup: make the zen free models available without editing
 	// models.json (no-op when the user already configured zenfree there).
 	ensureZenProviderRegistered(pi);
 
 	// Initial paint + live timer for status/widget (started with the session,
 	// torn down with it — never from the factory).
-	pi.on("session_start", (_event, ctx) => {
+	track(pi.on("session_start", (_event, ctx) => {
 		refreshStatus(ctx);
 		refreshWidget(ctx);
 		if (statusTimer) clearInterval(statusTimer);
@@ -614,9 +622,10 @@ export default function (pi: ExtensionAPI) {
 			refreshStatus(ctx);
 			refreshWidget(ctx);
 		}, 30_000);
-	});
+	}));
 
 	pi.on("session_shutdown", () => {
+		while (unsubscribers.length > 0) unsubscribers.pop()?.();
 		if (statusTimer) {
 			clearInterval(statusTimer);
 			statusTimer = null;
@@ -624,21 +633,21 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// Keep the status line in sync when the user manually switches models.
-	pi.on("model_select", (event, ctx) => {
+	track(pi.on("model_select", (event, ctx) => {
 		refreshStatus(ctx, event.model);
 		refreshWidget(ctx, event.model);
-	});
+	}));
 
 	// Capture which model the outgoing request actually targets. This lets us
 	// correlate the failing response with the active model, so we don't wrongly
 	// fall back when a *small-model* call (session title, summarizer, ...) that
 	// uses a different model happens to get rate-limited.
-	pi.on("before_provider_request", (event) => {
+	track(pi.on("before_provider_request", (event) => {
 		const requested = (event as { payload?: { model?: unknown } }).payload?.model;
 		if (typeof requested === "string") state.lastRequestModelId = requested;
-	});
+	}));
 
-	pi.on("after_provider_response", async (event, ctx) => {
+	track(pi.on("after_provider_response", async (event, ctx) => {
 		if (!state.enabled) return;
 		if (!TRIGGER_STATUSES.has(event.status)) return;
 		const model = ctx.model;
@@ -649,7 +658,7 @@ export default function (pi: ExtensionAPI) {
 		// model (skip small-model / title / summarizer calls on other models).
 		if (state.lastRequestModelId && state.lastRequestModelId !== model.id) return;
 		await maybeFallback(pi, ctx);
-	});
+	}));
 
 	/* -------- commands -------- */
 

@@ -1,9 +1,26 @@
 {
   "name": "pi-zen-fallback",
   "version": "1.0.0",
+  "type": "module",
   "description": "Auto-fallback between free OpenCode Zen models for the pi coding agent, with self-registration on a clean install.",
   "keywords": ["pi-package", "pi-extension", "opencode", "zen", "fallback"],
   "license": "MIT",
+  "files": [
+    "extensions",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "scripts": {
+    "test": "node --test test/**/*.test.js"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
   "pi": {
     "extensions": ["./extensions"]
   }

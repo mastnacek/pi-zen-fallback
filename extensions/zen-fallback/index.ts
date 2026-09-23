@@ -31,6 +31,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import type { AutocompleteItem } from "@earendil-works/pi-tui";
 
 /* ------------------------------------------------------------------ */
 /* Configuration                                                       */
@@ -319,7 +320,7 @@ function readCachedModels(): ZenFreeModel[] | null {
 			) {
 				upgraded.push(m);
 			} else {
-				upgraded.push({ ...toProviderModels([m.id])[0] });
+				upgraded.push({ ...toProviderModels([(m as { id: string }).id])[0] });
 			}
 		}
 		return upgraded.length > 0 ? upgraded : null;
@@ -735,9 +736,17 @@ export default function (pi: ExtensionAPI) {
 
 			// První slovo — podpříkazy
 			const typed = (tokens[0] ?? "").toLowerCase();
-			const items = Object.entries(ZEN_DOCS)
-				.filter(([key]) => key.startsWith(typed))
-				.map(([value, description]) => ({ value, label: value, description }));
+			const NON_TERMINAL = new Set(["widget"]);
+			const items: AutocompleteItem[] = [];
+			for (const [key, description] of Object.entries(ZEN_DOCS)) {
+				if (key.toLowerCase().startsWith(typed)) {
+					items.push({
+						value: NON_TERMINAL.has(key) ? `${key} ` : key,
+						label: key,
+						description,
+					});
+				}
+			}
 			return items.length > 0 ? items : null;
 		},
 		handler: async (args, ctx) => {

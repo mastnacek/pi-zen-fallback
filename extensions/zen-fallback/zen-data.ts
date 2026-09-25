@@ -10,6 +10,24 @@ export const ZEN_BASE_URL_MARKER = "opencode.ai/zen";
 
 export const TRIGGER_STATUSES = new Set([429, 502, 503]);
 
+/**
+ * Auth/gate rejections: the free tier answers 403 to every non-opencode client
+ * (proved by capture tests — headers are identical, only the client transport
+ * differs) and 401 to a bad API key. No other free model will succeed either,
+ * so these must never trigger a model switch.
+ */
+export const AUTH_STATUSES = new Set([401, 403]);
+
+/** Still listed by /v1/models but already deprecated — never offer them. */
+export const DEPRECATED_FREE_IDS = new Set([
+	"mimo-v2.5-free",
+	"deepseek-v4-flash-free",
+	"muse-spark-1.2-contributor-free",
+]);
+
+/** Free-looking ids that are not chat models (Jev uses the /systemone API). */
+export const NON_CHAT_FREE_IDS = new Set(["jev-1.13-free"]);
+
 export const FAIL_COOLDOWN_MS = 10 * 60 * 1000;
 
 export const SWITCH_COOLDOWN_MS = 30 * 1000;
@@ -26,8 +44,8 @@ export const RESPONSES_COMPAT = {
 
 export const FREE_MODELS = [
 	{
-		id: "mimo-v2.5-free",
-		name: "MiMo V2.5 Free",
+		id: "mimo-v2.6-flash-free",
+		name: "MiMo V2.6 Flash Free",
 		reasoning: true,
 		api: "openai-completions" as const,
 		input: ["text", "image"] as Array<"text" | "image">,
@@ -45,6 +63,17 @@ export const FREE_MODELS = [
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 200000,
 		maxTokens: 32000,
+		compat: CHAT_COMPLETIONS_COMPAT,
+	},
+	{
+		id: "space-bunny-free",
+		name: "Space Bunny Free",
+		reasoning: true,
+		api: "openai-completions" as const,
+		input: ["text", "image"] as Array<"text" | "image">,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1048576,
+		maxTokens: 65536,
 		compat: CHAT_COMPLETIONS_COMPAT,
 	},
 	{
@@ -100,39 +129,6 @@ export const FREE_MODELS = [
 			max: null,
 		},
 	},
-	{
-		id: "muse-spark-1.2-contributor-free",
-		name: "Muse Spark 1.2 Free",
-		reasoning: true,
-		api: "openai-responses" as const,
-		input: ["text", "image"] as Array<"text" | "image">,
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 1048576,
-		maxTokens: 131072,
-		compat: RESPONSES_COMPAT,
-		thinkingLevelMap: {
-			off: null,
-			minimal: "minimal",
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: "xhigh",
-			max: null,
-		},
-	},
-	{
-		// Legacy entry: still listed by /v1/models, but no longer in pi's
-		// curated catalog or the Zen docs table — kept last as fallback.
-		id: "deepseek-v4-flash-free",
-		name: "DeepSeek V4 Flash Free",
-		reasoning: true,
-		api: "openai-completions" as const,
-		input: ["text"] as Array<"text" | "image">,
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 200000,
-		maxTokens: 32768,
-		compat: CHAT_COMPLETIONS_COMPAT,
-	},
 ];
 
 export const ZEN_DEFAULT_BASE_URL = "https://opencode.ai/zen/v1";
@@ -146,13 +142,12 @@ export type ZenFreeModel = (typeof FREE_MODELS)[number];
 /** The fallback order. A property, not a `let`: the commands reassign it. */
 export const zenCatalog: { order: string[] } = {
   order: [
-	"mimo-v2.5-free",
+	"mimo-v2.6-flash-free",
 	"big-pickle",
+	"space-bunny-free",
 	"ling-3.0-flash-fin-free",
-	"nemotron-3-ultra-free",
 	"nemotron-3.5-lightning-free",
+	"nemotron-3-ultra-free",
 	"muse-spark-1.3-contributor-free",
-	"muse-spark-1.2-contributor-free",
-	"deepseek-v4-flash-free",
-],
+  ],
 };

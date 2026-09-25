@@ -7,8 +7,8 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { ZEN_PROVIDER, ZEN_DEFAULT_BASE_URL, zenCatalog } from "./zen-data.ts";
-import { toProviderModels, fetchOrderedZenFreeIds, writeZenCache, ZEN_DEFAULT_UA, readZenfreeConfigFromModelsJson } from "./zen-cache.ts";
+import { ZEN_PROVIDER, zenCatalog } from "./zen-data.ts";
+import { toProviderModels, fetchOrderedZenFreeIds, writeZenCache, buildZenProviderConfig } from "./zen-cache.ts";
 import { state, WIDGET_KEY, isOnFallbackModel, refreshStatus, refreshWidget, zenStatus } from "./zen-status.ts";
 
 export function registerZenCommands(pi: ExtensionAPI): void {
@@ -37,6 +37,11 @@ const showZenHelp = (ctx: ExtensionContext) => {
 			"",
 			`Aktivní model: ${model}${isOnFallbackModel(ctx.model?.id) ? " (fallback)" : ""}`,
 			`Chladnoucí modely (${cooling.length}): ${cooling.join(", ") || "žádné"}`,
+			`API klíč: ${
+				zenStatus.keyConfigured
+					? `nastaven (${zenStatus.keySource})`
+					: "CHYBÍ — free tier je jen pro opencode, klíč: https://opencode.ai/auth → ZEN_API_KEY"
+			}`,
 			`Widget nad editorem: ${zenStatus.widgetVisible ? "zobrazen" : "skryt"}`,
 			`Pořadí fallbacku: ${zenCatalog.order.join(" → ")}`,
 		].join("\n"),
@@ -74,15 +79,10 @@ pi.registerCommand("zen-refresh", {
 			const models = toProviderModels(orderedIds);
 			writeZenCache(models);
 			zenCatalog.order = orderedIds;
-			const existing = readZenfreeConfigFromModelsJson();
-			ctx.modelRegistry.registerProvider(ZEN_PROVIDER, {
-				name: "OpenCode Zen (free)",
-				baseUrl: existing?.baseUrl ?? ZEN_DEFAULT_BASE_URL,
-				api: existing?.api ?? "openai-completions",
-				apiKey: existing?.apiKey ?? "public",
-				headers: existing?.headers ?? { "user-agent": ZEN_DEFAULT_UA },
-				models,
-			});
+			ctx.modelRegistry.registerProvider(
+				ZEN_PROVIDER,
+				buildZenProviderConfig(models),
+			);
 			await ctx.modelRegistry.refresh({
 				allowNetwork: false,
 				providers: [ZEN_PROVIDER],

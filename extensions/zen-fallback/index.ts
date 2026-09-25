@@ -8,13 +8,40 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { TRIGGER_STATUSES, FAIL_COOLDOWN_MS, SWITCH_COOLDOWN_MS, zenCatalog } from "./zen-data.ts";
-import { ensureZenProviderRegistered } from "./zen-cache.ts";
-import { state, isZenProvider, refreshStatus, refreshWidget } from "./zen-status.ts";
+import { AUTH_STATUSES, TRIGGER_STATUSES, FAIL_COOLDOWN_MS, SWITCH_COOLDOWN_MS, zenCatalog } from "./zen-data.ts";
+import { ensureZenProviderRegistered, ZEN_KEY_DOCS } from "./zen-cache.ts";
+import { state, isZenProvider, refreshStatus, refreshWidget, zenStatus } from "./zen-status.ts";
 import { registerZenCommand } from "./zen-command.ts";
 import { registerZenCommands } from "./zen-commands.ts";
 
 let statusTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * 401/403 are not rate limits. The Zen free tier refuses every client that is not
+ * opencode itself (identical headers still get 403), so no other free model will
+ * pass either — switching is pointless. Explain the API-key requirement instead,
+ * at most once a minute.
+ */
+function notifyAuthRejection(ctx: ExtensionContext, status: number): void {
+	const now = Date.now();
+	if (now - state.authNoticeAt < 2 * SWITCH_COOLDOWN_MS) return;
+	state.authNoticeAt = now;
+	if (status === 401) {
+		zenStatus.keyConfigured = false;
+		ctx.ui.notify(
+			"Zen: neplatný API klíč (401) — zkontroluj ZEN_API_KEY / OPENCODE_API_KEY.",
+			"error",
+		);
+	} else {
+		ctx.ui.notify(
+			`Zen: free tier odmítnut (403) — bez klíče běží modely jen z opencode. ` +
+				`Vytvoř klíč na ${ZEN_KEY_DOCS} a nastav ZEN_API_KEY.`,
+			"error",
+		);
+	}
+	refreshStatus(ctx);
+	refreshWidget(ctx);
+}
 
 async function maybeFallback(
 	pi: ExtensionAPI,
@@ -129,7 +156,6 @@ export default function (pi: ExtensionAPI) {
 
 	track(pi.on("after_provider_response", async (event, ctx) => {
 		if (!state.enabled) return;
-		if (!TRIGGER_STATUSES.has(event.status)) return;
 		const model = ctx.model;
 		if (!model) return;
 		// STRICT gate: only ever act for the zen free provider.
@@ -137,6 +163,11 @@ export default function (pi: ExtensionAPI) {
 		// Correlation: only react when the failed request was for the active
 		// model (skip small-model / title / summarizer calls on other models).
 		if (state.lastRequestModelId && state.lastRequestModelId !== model.id) return;
+		if (AUTH_STATUSES.has(event.status)) {
+			notifyAuthRejection(ctx, event.status);
+			return;
+		}
+		if (!TRIGGER_STATUSES.has(event.status)) return;
 		await maybeFallback(pi, ctx);
 	}));
 

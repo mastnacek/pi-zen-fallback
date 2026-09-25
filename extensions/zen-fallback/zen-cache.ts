@@ -9,7 +9,8 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { CHAT_COMPLETIONS_COMPAT, FREE_MODELS, ZEN_DEFAULT_BASE_URL, ZEN_MODELS_URL, ZEN_CACHE_FILE, type ZenFreeModel, zenCatalog } from "./zen-data.ts";
+import { CHAT_COMPLETIONS_COMPAT, DEPRECATED_FREE_IDS, FREE_MODELS, NON_CHAT_FREE_IDS, ZEN_DEFAULT_BASE_URL, ZEN_MODELS_URL, ZEN_CACHE_FILE, type ZenFreeModel, zenCatalog } from "./zen-data.ts";
+import { zenStatus } from "./zen-status.ts";
 
 export function zenAgentDir(): string {
 	return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
@@ -59,7 +60,12 @@ export async function fetchOrderedZenFreeIds(): Promise<string[]> {
 	const liveSet = new Set(live.map((m) => m.id));
 	const free = live
 		.map((m) => m.id)
-		.filter((id) => id === "big-pickle" || id.endsWith("-free"));
+		.filter(
+			(id) =>
+				(id === "big-pickle" || id.endsWith("-free")) &&
+				!DEPRECATED_FREE_IDS.has(id) &&
+				!NON_CHAT_FREE_IDS.has(id),
+		);
 
 	const ordered: string[] = [];
 	for (const id of zenCatalog.order) if (liveSet.has(id)) ordered.push(id);
@@ -96,7 +102,17 @@ export function readCachedModels(): ZenFreeModel[] | null {
 				upgraded.push({ ...toProviderModels([(m as { id: string }).id])[0] });
 			}
 		}
-		return upgraded.length > 0 ? upgraded : null;
+		// An old cache can still carry deprecated / non-chat ids — drop them so
+		// a stale file never re-registers a model the gateway has retired.
+		const usable = upgraded.filter(
+			(m) => !DEPRECATED_FREE_IDS.has(m.id) && !NON_CHAT_FREE_IDS.has(m.id),
+		);
+		// A cache written before a new model shipped must not hide it: append any
+		// embedded entry the file predates, in catalogue order.
+		for (const embedded of FREE_MODELS) {
+			if (!usable.some((m) => m.id === embedded.id)) usable.push({ ...embedded });
+		}
+		return usable.length > 0 ? usable : null;
 	} catch {
 		return null; // no cache / unreadable — use embedded catalogue
 	}
@@ -117,7 +133,60 @@ export function writeZenCache(models: ZenFreeModel[]): void {
 }
 
 export const ZEN_DEFAULT_UA =
-	"opencode/1.18.30 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14";
+	"opencode/1.18.32 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14";
+
+/** Env vars checked for a Zen API key, in order of precedence. */
+export const ZEN_KEY_ENVS = ["ZEN_API_KEY", "OPENCODE_API_KEY"] as const;
+
+export const ZEN_KEY_DOCS = "https://opencode.ai/auth";
+
+/**
+ * Resolve the API key for the zenfree provider.
+ *
+ * The free tier rejects every client that is not opencode itself — a byte-for-byte
+ * copy of opencode's headers still gets HTTP 403 (only its own transport passes),
+ * so a real Zen key is the only way to call these models from pi. `models.json`
+ * wins over the environment (handled by the caller); without any key we keep the
+ * legacy anonymous value and let `zenStatus.keyConfigured` surface the problem.
+ */
+export function resolveZenApiKey(): { apiKey: string; source: string } {
+	for (const name of ZEN_KEY_ENVS) {
+		const value = process.env[name];
+		if (value && value.trim()) {
+			return { apiKey: value.trim(), source: `env ${name}` };
+		}
+	}
+	return { apiKey: "public", source: "" };
+}
+
+/** Provider registration payload + key bookkeeping (shared by every register path). */
+export function buildZenProviderConfig(models: ZenFreeModel[]) {
+	const existing = readZenfreeConfigFromModelsJson();
+	const resolved = resolveZenApiKey();
+	const apiKey = existing?.apiKey ?? resolved.apiKey;
+	zenStatus.keyConfigured = apiKey !== "public";
+	zenStatus.keySource = existing?.apiKey ? "models.json" : resolved.source;
+	return {
+		name: "OpenCode Zen (free)",
+		baseUrl: existing?.baseUrl ?? ZEN_DEFAULT_BASE_URL,
+		// Provider-level default only: entries in FREE_MODELS carry their own
+		// per-model `api` (Muse Spark → "openai-responses"), which wins.
+		api: existing?.api ?? "openai-completions",
+		apiKey,
+		headers: existing?.headers ?? { "user-agent": ZEN_DEFAULT_UA },
+		models,
+	};
+}
+
+export function ensureZenProviderRegistered(pi: ExtensionAPI): void {
+	const existing = readZenfreeConfigFromModelsJson();
+	const models = readCachedModels() ?? FREE_MODELS;
+	// Always compute key state, even when the user's own config wins — the
+	// status line and the 401/403 handler depend on it.
+	const config = buildZenProviderConfig(models);
+	if (existing?.hasModels) return; // user config wins — never clobber it
+	pi.registerProvider("zenfree", config);
+}
 
 export function readZenfreeConfigFromModelsJson() {
 	const dir = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
@@ -137,23 +206,4 @@ export function readZenfreeConfigFromModelsJson() {
 	} catch {
 		return null;
 	}
-}
-
-export function ensureZenProviderRegistered(pi: ExtensionAPI): void {
-	const existing = readZenfreeConfigFromModelsJson();
-	if (existing?.hasModels) return; // user config wins — never clobber it
-
-	pi.registerProvider("zenfree", {
-		name: "OpenCode Zen (free)",
-		baseUrl: existing?.baseUrl ?? ZEN_DEFAULT_BASE_URL,
-		// Provider-level default only: entries in FREE_MODELS carry their own
-		// per-model `api` (Muse Spark → "openai-responses"), which wins.
-		// NOTE: pi itself attaches `x-opencode-session` / `x-opencode-client`
-		// to every opencode.ai request — without them the free tier answers
-		// "OpenCode's free tier can only be used in OpenCode".
-		api: existing?.api ?? "openai-completions",
-		apiKey: existing?.apiKey ?? "public",
-		headers: existing?.headers ?? { "user-agent": ZEN_DEFAULT_UA },
-		models: readCachedModels() ?? FREE_MODELS,
-	});
 }

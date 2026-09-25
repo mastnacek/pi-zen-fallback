@@ -13,6 +13,7 @@ export interface ZenState {
 	failedUntil: Map<string, number>; // modelId -> timestamp after which it may be tried again
 	lastSwitchAt: number;
 	lastRequestModelId: string | null; // model id of the most recent provider request
+	authNoticeAt: number; // last 401/403 notification (dedupes a spammy error)
 }
 
 export const state: ZenState = {
@@ -20,6 +21,7 @@ export const state: ZenState = {
 	failedUntil: new Map(),
 	lastSwitchAt: 0,
 	lastRequestModelId: null,
+	authNoticeAt: 0,
 };
 
 export const STATUS_KEY = "zen-fallback";
@@ -66,6 +68,8 @@ export function formatStatus(
 	parts.push(
 		state.enabled ? theme.fg("success", "zen:ON") : theme.fg("muted", "zen:OFF"),
 	);
+
+	if (!zenStatus.keyConfigured) parts.push(theme.fg("warning", "BEZ-KLÍČE"));
 
 	if (current) {
 		parts.push(theme.fg("text", current));
@@ -141,6 +145,10 @@ export function refreshWidget(
 }
 
 /** Widget visibility. A property, not a `let`: the commands toggle it. */
-export const zenStatus: { widgetVisible: boolean } = {
+export const zenStatus: { widgetVisible: boolean; keyConfigured: boolean; keySource: string } = {
   widgetVisible: false,
+  // Flipped by zen-cache when a real Zen API key is found. Without a key the
+  // gateway answers 403 to every free model (free tier is opencode-only).
+  keyConfigured: false,
+  keySource: "",
 };
